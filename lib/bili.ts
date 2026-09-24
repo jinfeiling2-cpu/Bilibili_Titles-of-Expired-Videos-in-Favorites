@@ -306,6 +306,14 @@ export function toCsv(items: FavItem[]): string {
   return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
+export function backupPaths(title: string, mediaId: string): { folder: string; csv: string; json: string } {
+  if (!/^\d+$/.test(mediaId)) throw new Error("media_id 无效");
+  const name = (title.replace(/[\\/:*?"<>|\r\n]+/g, "_").replace(/\.\./g, "_").trim().slice(0, 40) || "收藏夹");
+  const base = `${name}-${mediaId}`;
+  const folder = `backups/${base}`;
+  return { folder, csv: `${folder}/${base}.csv`, json: `${folder}/${base}.json` };
+}
+
 export function toJson(folder: { mediaId: string; title: string; mediaCount: number }, items: FavItem[]): string {
   return JSON.stringify(
     {

@@ -14,6 +14,7 @@ import {
   signedParams,
   statusLabel,
   tvResourceParams,
+  backupPaths,
   toCsv,
   type FavItem,
 } from "./bili.ts";
@@ -129,6 +130,16 @@ describe("collectWhileHasMore", () => {
     });
     assert.deepEqual(failed.items, [1, 2]);
     assert.equal(failed.warning, "签名失败（-3）");
+  });
+});
+
+describe("backupPaths", () => {
+  it("keeps exports inside backups and strips path characters", () => {
+    const paths = backupPaths("猛 男../生存", "1052622027");
+    assert.equal(paths.folder.startsWith("backups/"), true);
+    assert.equal(paths.folder.includes(".."), false);
+    assert.match(paths.csv, /\.csv$/);
+    assert.match(paths.json, /\.json$/);
   });
 });
 

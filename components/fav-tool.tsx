@@ -212,8 +212,15 @@ export function FavTool() {
       const base = `${safeName(loaded.title)}-${loaded.mediaId}`;
       download(`${base}.csv`, toCsv(loaded.items), "text/csv;charset=utf-8");
       download(`${base}.json`, toJson(loaded, loaded.items), "application/json;charset=utf-8");
+      const saved = await fetch("/api/bili/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loaded),
+      });
+      const savedBody = (await saved.json()) as { error?: string; folder?: string };
+      if (!saved.ok) throw new Error(savedBody.error || "写入 backups 失败");
       setNote(
-        `已开始下载 ${loaded.items.length} 条（收藏夹计数 ${loaded.mediaCount}）的 CSV 和 JSON。请把文件放进仓库的 backups/ 目录，不要提交到 Git。`,
+        `已下载 ${loaded.items.length} 条（收藏夹计数 ${loaded.mediaCount}），并写入 ${savedBody.folder}。该目录已被 Git 忽略，不要提交。`,
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "导出失败");
