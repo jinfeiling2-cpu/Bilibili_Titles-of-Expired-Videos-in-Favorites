@@ -42,6 +42,20 @@ npm run dev
 
 这个值等于网页登录态，只用于当次读取收藏夹的请求，不要发给别人，也不要写进仓库。
 
+## 如何测试
+
+```bash
+npm test
+npm run dev
+```
+
+用浏览器打开 http://127.0.0.1:43127 。
+
+1. 公开收藏夹可以不登录。把链接或 `media_id` 填进去，点「查找失效视频」。失效条目会列出 UP 主、简介，以及简介里的「原标题：」。
+2. 点「导出全部视频」。浏览器会下载 CSV 和 JSON，同时在项目里的 `backups/收藏夹名-media_id/` 写下同名的两个文件。
+3. 私密收藏夹才需要按上一节粘贴 SESSDATA。它只用于读取列表，不能找回原标题。
+4. 找回原标题：点「获取登录二维码」，用哔哩哔哩手机客户端扫描并确认，再点一次「查找失效视频」。`access_key` 只留在当前标签页的 sessionStorage。
+
 ## 导出文件放哪
 
-浏览器下载的 CSV 和 JSON 请放到 `backups/`。这个目录里的备份已在 `.gitignore` 中忽略。仓库可以公开，但不要提交 SESSDATA、Cookie，或用户导出的收藏夹备份。`.gitignore` 会忽略 `*SESSDATA*` 和 `*.cookie`。
+「导出全部视频」会把该收藏夹的 CSV 和 JSON 写进 `backups/收藏夹名-media_id/`，同时触发浏览器下载。`backups/` 里除了 `.gitkeep` 以外都已在 `.gitignore` 中忽略。仓库可以公开阅读，但不要提交 SESSDATA、Cookie、access_key，或用户导出的收藏夹备份。`.gitignore` 会忽略 `*SESSDATA*` 和 `*.cookie`。用完自己的私密数据后，请把仓库改回私密。

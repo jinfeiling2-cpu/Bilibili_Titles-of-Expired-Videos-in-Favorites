@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { createHash } from "node:crypto";
 import {
+  TV_APPSEC,
   appSign,
   bestTitle,
   collectAllPages,
+  collectWhileHasMore,
   extractOriginalTitle,
+  normalizeMedia,
   parseMediaId,
+  signPlain,
+  signedParams,
   statusLabel,
+  tvResourceParams,
+  backupPaths,
   toCsv,
   type FavItem,
 } from "./bili.ts";
@@ -19,6 +27,26 @@ describe("appSign", () => {
       ts: "0",
     });
     assert.equal(sign, "e134154ed6add881d28fbdf68653cd9c");
+  });
+
+  it("hashes statistics with literal braces, then encodes them only in the URL", () => {
+    const params = { statistics: '{"appId":1}' };
+    const plain = signPlain(params);
+    assert.equal(plain, 'statistics={"appId":1}');
+    assert.doesNotMatch(plain, /%7B/);
+    assert.equal(appSign(params), createHash("md5").update(plain + TV_APPSEC).digest("hex"));
+    const query = signedParams(params);
+    assert.match(query, /statistics=%7B%22appId%22%3A1%7D/);
+  });
+
+  it("signs folder resources with the raw statistics object", () => {
+    const params = tvResourceParams("1", "token_abc", "1", "0");
+    const plain = signPlain(params);
+    assert.match(plain, /statistics=\{"appId":1,"platform":3,"version":"8.94.0","abtest":""\}/);
+    assert.doesNotMatch(plain, /%7B/);
+    assert.match(plain, /mobi_app=android/);
+    assert.match(plain, /disable_rcmd=0/);
+    assert.match(plain, /build=8940300/);
   });
 });
 
@@ -57,6 +85,61 @@ describe("collectAllPages", () => {
     assert.deepEqual(items, [1, 2, 3, 4, 5]);
     assert.equal(mediaCount, 5);
     assert.deepEqual(requested, [1, 2, 3]);
+  });
+});
+
+describe("normalizeMedia", () => {
+  it("uses oid and treats attr, placeholder titles, and the invalid cover as invalid", () => {
+    const byOid = normalizeMedia({ oid: 42, id: 7, bv_id: "BV1oid", title: "还在", attr: 0 });
+    assert.equal(byOid?.avid, 42);
+    assert.equal(byOid?.bvid, "BV1oid");
+    assert.equal(byOid?.invalid, false);
+
+    assert.equal(normalizeMedia({ id: 1, title: " 已失效 ", attr: 0 })?.invalid, true);
+    assert.equal(normalizeMedia({ id: 2, title: "正常", attr: 9 })?.invalid, true);
+    assert.equal(statusLabel(normalizeMedia({ id: 2, title: "正常", attr: 9 })!), "UP 主删除");
+    assert.equal(statusLabel(normalizeMedia({ id: 3, title: "正常", attr: 1 })!), "其他原因下架");
+    assert.equal(normalizeMedia({ id: 4, title: "正常", is_invalid: 1 })?.invalid, true);
+    assert.equal(
+      normalizeMedia({ id: 5, title: "正常", cover: "https://i0.hdslb.com/bfs/archive/be27fd62c990.jpg" })?.invalid,
+      true,
+    );
+    assert.equal(normalizeMedia({ title: "没有稿件号" }), null);
+
+    const placeholder = normalizeMedia({ id: 6, title: "已失效视频", intro: "原标题：旧名字" });
+    assert.ok(placeholder);
+    placeholder.restoredTitle = "视频去哪了呢？";
+    assert.equal(bestTitle(placeholder), "旧名字");
+    placeholder.restoredTitle = "真正的标题";
+    assert.equal(bestTitle(placeholder), "真正的标题");
+    assert.equal(statusLabel(placeholder), "已失效（已找回原标题）");
+  });
+});
+
+describe("collectWhileHasMore", () => {
+  it("stops on an empty page or has_more false, and keeps earlier items when a later page fails", async () => {
+    const stopped = await collectWhileHasMore(async (pn) => {
+      if (pn === 1) return { items: [1], hasMore: true };
+      return { items: [], hasMore: true };
+    });
+    assert.deepEqual(stopped.items, [1]);
+
+    const failed = await collectWhileHasMore(async (pn) => {
+      if (pn === 1) return { items: [1, 2], hasMore: true };
+      return { items: [], hasMore: false, error: "签名失败（-3）" };
+    });
+    assert.deepEqual(failed.items, [1, 2]);
+    assert.equal(failed.warning, "签名失败（-3）");
+  });
+});
+
+describe("backupPaths", () => {
+  it("keeps exports inside backups and strips path characters", () => {
+    const paths = backupPaths("猛 男../生存", "1052622027");
+    assert.equal(paths.folder.startsWith("backups/"), true);
+    assert.equal(paths.folder.includes(".."), false);
+    assert.match(paths.csv, /\.csv$/);
+    assert.match(paths.json, /\.json$/);
   });
 });
 
