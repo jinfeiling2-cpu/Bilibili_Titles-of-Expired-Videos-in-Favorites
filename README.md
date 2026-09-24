@@ -6,6 +6,41 @@
 
 扫码得到的凭据只放在浏览器 `sessionStorage`，关闭标签页后消失。
 
+## 在 GitHub 上为什么打不开
+
+GitHub 只负责存放代码。打开下面这个地址，看到的是文件列表，不是能点的工具页面：
+
+https://github.com/jinfeiling2-cpu/Bilibili_Titles-of-Expired-Videos-in-Favorites
+
+`http://127.0.0.1:43127` 的意思是「这台电脑自己」。必须先在你自己的电脑上把程序启动，浏览器才能打开。没启动就访问，或者用手机去开这个地址，都会显示无法连接。
+
+## 在自己电脑上运行（第一次）
+
+下面以 Windows 为例。
+
+1. 安装 Node.js。打开 https://nodejs.org ，下载 **22** 版本的 Windows 安装包，一直点下一步。装好后先关掉已经打开的命令窗口，再打开新的。
+2. 安装 GitHub Desktop（比记命令容易）。打开 https://desktop.github.com 下载并安装。用你的 GitHub 账号登录。
+3. 在 GitHub Desktop 里选择 **File（文件）→ Clone repository（克隆仓库）**。切到 **URL**，粘贴：
+
+   `https://github.com/jinfeiling2-cpu/Bilibili_Titles-of-Expired-Videos-in-Favorites`
+
+   本地路径选一个你找得到的文件夹，例如「文档」。然后点 **Clone**。
+4. 克隆完成后，菜单选 **Repository → Open in Command Prompt**（或「在终端中打开」）。会弹出一个黑窗口，当前目录就是这个项目。
+5. 在黑窗口里依次输入下面两行，每行输入完按一次回车。第一行要等它自己跑完，不要关掉窗口。
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+6. 看到类似 `Local: http://127.0.0.1:43127` 之后，打开 Chrome 或 Edge，地址栏输入：
+
+   http://127.0.0.1:43127
+
+7. 使用期间不要关那个黑窗口。用完后，在黑窗口里按 `Ctrl + C`，再按 `Y` 或回车，程序就停了。下次使用从第 5 步的 `npm run dev` 开始即可，不必再 `npm install`，除非项目有更新。
+
+Mac 的差别只有两处：Node.js 选 macOS 安装包；GitHub Desktop 用 **Repository → Open in Terminal**。停止程序同样是在终端里按 `Ctrl + C`。
+
 ## 本地运行
 
 需要 Node.js 22。
