@@ -6,25 +6,57 @@ export const TV_APPSEC = "59b43e04ad6965f34319062b478f83dd";
 
 export const INVALID_TITLE = "已失效视频";
 export const PAGE_SIZE = 20;
+export const APP_STATISTICS = '{"appId":1,"platform":3,"version":"8.94.0","abtest":""}';
+
+export function tvResourceParams(
+  mediaId: string,
+  accessKey: string,
+  pn: string,
+  ts: string,
+): Record<string, string> {
+  return {
+    media_id: mediaId,
+    pn,
+    ps: "20",
+    appkey: TV_APPKEY,
+    access_key: accessKey,
+    ts,
+    mobi_app: "android",
+    platform: "android",
+    build: "8940300",
+    disable_rcmd: "0",
+    c_locale: "en",
+    s_locale: "en",
+    channel: "bili",
+    statistics: APP_STATISTICS,
+  };
+}
+
+/** 按参数名字母序拼成未编码的 key=value，供 MD5 使用。 */
+export function signPlain(params: Record<string, string>): string {
+  return Object.keys(params)
+    .sort()
+    .map((key) => `${key}=${params[key]}`)
+    .join("&");
+}
 
 export function appSign(
   params: Record<string, string>,
   appsec = TV_APPSEC,
 ): string {
-  const search = new URLSearchParams(params);
-  search.sort();
-  return createHash("md5").update(search.toString() + appsec).digest("hex");
+  return createHash("md5").update(signPlain(params) + appsec).digest("hex");
 }
 
+/** 先按原文签名，再把每个 key/value 做 encodeURIComponent 放进 URL 或 POST body。 */
 export function signedParams(
   params: Record<string, string>,
   appsec = TV_APPSEC,
-): URLSearchParams {
-  const search = new URLSearchParams(params);
-  search.sort();
-  const sign = createHash("md5").update(search.toString() + appsec).digest("hex");
-  search.set("sign", sign);
-  return search;
+): string {
+  const signed: Record<string, string> = { ...params, sign: appSign(params, appsec) };
+  return Object.keys(signed)
+    .sort()
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(signed[key])}`)
+    .join("&");
 }
 
 export function parseMediaId(input: string): string {
@@ -86,6 +118,7 @@ export async function collectAllPages<T>(
 
 export type RawMedia = {
   id?: number;
+  oid?: number;
   type?: number;
   title?: string;
   cover?: string;
@@ -93,6 +126,7 @@ export type RawMedia = {
   duration?: number;
   upper?: { mid?: number; name?: string };
   attr?: number;
+  is_invalid?: boolean | number;
   cnt_info?: { collect?: number; play?: number; danmaku?: number };
   ctime?: number;
   pubtime?: number;
@@ -100,6 +134,21 @@ export type RawMedia = {
   bv_id?: string;
   bvid?: string;
 };
+
+const INVALID_TITLES = new Set(["已失效视频", "已失效", "该视频已被删除"]);
+
+export const PLACEHOLDER_TITLES = new Set([
+  "",
+  "已失效视频",
+  "已失效",
+  "该视频已被删除",
+  "视频去哪了呢？",
+  "正在加载数据...",
+]);
+
+export function isPlaceholderTitle(title: string): boolean {
+  return PLACEHOLDER_TITLES.has(title.trim());
+}
 
 export type FavItem = {
   avid: number;
@@ -109,6 +158,7 @@ export type FavItem = {
   introOriginalTitle: string;
   restoredTitle: string;
   upper: string;
+  attr: number;
   invalid: boolean;
   link: string;
   favTime: number;
@@ -121,11 +171,20 @@ export type FavItem = {
 };
 
 export function normalizeMedia(raw: RawMedia): FavItem | null {
-  const avid = Number(raw.id);
+  const avid = Number(raw.oid ?? raw.id);
   if (!Number.isFinite(avid) || avid <= 0) return null;
   const bvid = raw.bvid || raw.bv_id || "";
   const title = raw.title ?? "";
   const intro = raw.intro ?? "";
+  const cover = (raw.cover ?? "").replace(/^http:\/\//i, "https://");
+  const attr = Number(raw.attr) || 0;
+  const invalid =
+    INVALID_TITLES.has(title.trim()) ||
+    attr === 1 ||
+    attr === 9 ||
+    raw.is_invalid === true ||
+    raw.is_invalid === 1 ||
+    cover.includes("be27fd62");
   return {
     avid,
     bvid,
@@ -134,7 +193,8 @@ export function normalizeMedia(raw: RawMedia): FavItem | null {
     introOriginalTitle: extractOriginalTitle(intro),
     restoredTitle: "",
     upper: raw.upper?.name ?? "",
-    invalid: title === INVALID_TITLE,
+    attr,
+    invalid,
     link: bvid
       ? `https://www.bilibili.com/video/${bvid}`
       : `https://www.bilibili.com/video/av${avid}`,
@@ -144,12 +204,12 @@ export function normalizeMedia(raw: RawMedia): FavItem | null {
     play: Number(raw.cnt_info?.play) || 0,
     danmaku: Number(raw.cnt_info?.danmaku) || 0,
     favorite: Number(raw.cnt_info?.collect) || 0,
-    cover: (raw.cover ?? "").replace(/^http:\/\//i, "https://"),
+    cover,
   };
 }
 
 export function bestTitle(item: FavItem): string {
-  if (item.restoredTitle && item.restoredTitle !== INVALID_TITLE) {
+  if (item.restoredTitle && !isPlaceholderTitle(item.restoredTitle)) {
     return item.restoredTitle;
   }
   if (item.introOriginalTitle) return item.introOriginalTitle;
@@ -158,11 +218,11 @@ export function bestTitle(item: FavItem): string {
 
 export function statusLabel(item: FavItem): string {
   if (!item.invalid) return "正常";
-  if (item.restoredTitle && item.restoredTitle !== INVALID_TITLE) {
-    return "已失效（已找回原标题）";
+  const base = item.attr === 9 ? "UP 主删除" : item.attr === 1 ? "其他原因下架" : "已失效";
+  if (item.restoredTitle && !isPlaceholderTitle(item.restoredTitle)) {
+    return `${base}（已找回原标题）`;
   }
-  if (item.introOriginalTitle) return "已失效（简介含原标题）";
-  return "已失效";
+  return base;
 }
 
 export function formatUnix(seconds: number): string {
@@ -286,4 +346,34 @@ export function folderTitleFromPayload(payload: unknown): string {
   const data = root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
   const info = data.info && typeof data.info === "object" ? (data.info as Record<string, unknown>) : undefined;
   return String(info?.title ?? data.title ?? "");
+}
+
+export function hasMoreFromPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  const root = payload as Record<string, unknown>;
+  const data = root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
+  return data.has_more === true || data.has_more === 1;
+}
+
+export type HasMorePage<T> = {
+  items: T[];
+  hasMore: boolean;
+  error?: string;
+};
+
+/** 按接口的 has_more 翻页。本页为空或 has_more 为假就停；某一页报错则保留已拿到的条目。 */
+export async function collectWhileHasMore<T>(
+  fetchPage: (pn: number) => Promise<HasMorePage<T>>,
+): Promise<{ items: T[]; warning?: string }> {
+  const items: T[] = [];
+  for (let pn = 1; pn <= 500; pn++) {
+    const page = await fetchPage(pn);
+    if (page.error) {
+      return { items, warning: page.error };
+    }
+    if (page.items.length === 0) break;
+    items.push(...page.items);
+    if (!page.hasMore) break;
+  }
+  return { items };
 }

@@ -9,13 +9,14 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { input?: string; accessKey?: string };
     const mediaId = parseMediaId(body.input ?? "");
     const accessKey = body.accessKey?.trim() ?? "";
-    if (!/^[A-Za-z0-9]{16,256}$/.test(accessKey)) {
+    if (!/^[A-Za-z0-9_+\/=-]{8,512}$/.test(accessKey)) {
       return NextResponse.json({ error: "access_key 无效，请先用手机客户端扫码登录" }, { status: 400 });
     }
-    const items = await fetchSignedResources(mediaId, accessKey);
+    const result = await fetchSignedResources(mediaId, accessKey);
     return NextResponse.json({
       mediaId,
-      items: items.map((item) => ({
+      warning: result.warning,
+      items: result.items.map((item) => ({
         avid: item.avid,
         title: item.title,
         cover: item.cover,

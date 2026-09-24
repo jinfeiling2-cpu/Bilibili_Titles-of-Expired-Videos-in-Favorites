@@ -44,4 +44,4 @@ npm run dev
 
 ## 导出文件放哪
 
-浏览器下载的 CSV 和 JSON 请放到 `backups/`。这个目录里的备份已在 `.gitignore` 中忽略。仓库可以公开，但不要提交 SESSDATA、Cookie，或用户导出的收藏夹备份。`.gitignore` 会忽略 `*SESSDATA*` 和 `*.cookie`。
+浏览器下载的 CSV 和 JSON 请放到 `backups/`。这个目录里的备份已在 `.gitignore` 中忽略。仓库可以公开阅读，但不要提交 SESSDATA、Cookie、access_key，或用户导出的收藏夹备份。`.gitignore` 会忽略 `*SESSDATA*` 和 `*.cookie`。用完自己的私密数据后，请把仓库改回私密。

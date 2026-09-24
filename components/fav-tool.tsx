@@ -12,10 +12,10 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  INVALID_TITLE,
   bestTitle,
   formatDuration,
   formatUnix,
+  isPlaceholderTitle,
   statusLabel,
   toCsv,
   toJson,
@@ -139,29 +139,38 @@ export function FavTool() {
     return data;
   }
 
-  async function restoreTitles(current: FolderPayload): Promise<FolderPayload> {
-    if (!accessKey) {
-      return current;
+  async function restoreTitles(current: FolderPayload): Promise<{ folder: FolderPayload; warning: string }> {
+    if (!accessKey) return { folder: current, warning: "" };
+    try {
+      const response = await fetch("/api/bili/resources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input, accessKey }),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        warning?: string;
+        items?: { avid: number; title: string }[];
+      };
+      if (!response.ok) {
+        return { folder: current, warning: data.error || "签名接口请求失败" };
+      }
+      const titles = new Map((data.items ?? []).map((item) => [item.avid, item.title]));
+      return {
+        warning: data.warning || "",
+        folder: {
+          ...current,
+          items: current.items.map((item) => {
+            const restored = titles.get(item.avid) ?? "";
+            if (isPlaceholderTitle(restored)) return item;
+            return { ...item, restoredTitle: restored };
+          }),
+        },
+      };
+    } catch (reason) {
+      const warning = reason instanceof Error ? reason.message : "签名接口请求失败";
+      return { folder: current, warning };
     }
-    const response = await fetch("/api/bili/resources", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, accessKey }),
-    });
-    const data = (await response.json()) as {
-      error?: string;
-      items?: { avid: number; title: string }[];
-    };
-    if (!response.ok) throw new Error(data.error || "签名接口请求失败");
-    const titles = new Map((data.items ?? []).map((item) => [item.avid, item.title]));
-    return {
-      ...current,
-      items: current.items.map((item) => {
-        const restored = titles.get(item.avid) ?? "";
-        if (!restored || restored === INVALID_TITLE) return item;
-        return { ...item, restoredTitle: restored };
-      }),
-    };
   }
 
   async function findInvalid() {
@@ -170,18 +179,20 @@ export function FavTool() {
     setBusy("正在按 media_count 翻页读取收藏夹…");
     try {
       const loaded = await loadFolder();
-      setBusy(accessKey ? "正在用已签名的客户端接口尝试找回原标题…" : "");
-      const merged = await restoreTitles(loaded);
-      setFolder(merged);
+      setFolder(loaded);
       setOnlyInvalid(true);
+      setBusy(accessKey ? "正在用已签名的客户端接口尝试找回原标题…" : "");
+      const { folder: merged, warning } = await restoreTitles(loaded);
+      setFolder(merged);
       const found = merged.items.filter((item) => item.invalid).length;
-      const restored = merged.items.filter((item) => item.restoredTitle && item.restoredTitle !== INVALID_TITLE).length;
+      const restored = merged.items.filter((item) => item.restoredTitle && !isPlaceholderTitle(item.restoredTitle)).length;
+      if (warning) setError(`签名接口没有找回原标题：${warning}`);
       if (!accessKey) {
         setNote(
           `找到 ${found} 条失效视频。简介里的「原标题：」已摘出。SESSDATA 不能恢复原标题；要用客户端接口找回标题，请先扫码拿到 access_key。`,
         );
       } else {
-        setNote(`找到 ${found} 条失效视频，其中 ${restored} 条从签名接口拿到了不同于「已失效视频」的标题。`);
+        setNote(`找到 ${found} 条失效视频，其中 ${restored} 条从签名接口拿到了原标题。网页列表里的 UP 主和简介仍会保留。`);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "查找失败");
@@ -300,14 +311,9 @@ export function FavTool() {
             </Button>
           </div>
           {qrImage ? (
-            <Image
-              src={qrImage}
-              alt="哔哩哔哩电视端登录二维码"
-              width={208}
-              height={208}
-              unoptimized
-              className="h-52 w-52 rounded-md border"
-            />
+            // 二维码是 data:image/png;base64，next/image 不接受这种地址。
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={qrImage} alt="哔哩哔哩登录二维码" className="h-52 w-52 rounded-md border" />
           ) : null}
           <p className="text-sm text-muted-foreground">
             {accessKey ? `已保存 access_key（${accessKey.slice(0, 6)}…），仅在当前标签页的 sessionStorage。` : "尚未扫码。"}
@@ -349,6 +355,7 @@ export function FavTool() {
                 <TableRow>
                   <TableHead>封面</TableHead>
                   <TableHead>标题</TableHead>
+                  <TableHead>简介</TableHead>
                   <TableHead>简介原标题</TableHead>
                   <TableHead>UP 主</TableHead>
                   <TableHead>状态</TableHead>
@@ -380,10 +387,11 @@ export function FavTool() {
                       <a href={item.link} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
                         {bestTitle(item)}
                       </a>
-                      {item.invalid && item.title === INVALID_TITLE ? (
-                        <div className="text-xs text-muted-foreground">网页标题：已失效视频</div>
+                      {item.invalid ? (
+                        <div className="text-xs text-muted-foreground">网页标题：{item.title}</div>
                       ) : null}
                     </TableCell>
+                    <TableCell className="max-w-xs whitespace-normal">{item.intro}</TableCell>
                     <TableCell className="max-w-xs whitespace-normal">{item.introOriginalTitle}</TableCell>
                     <TableCell>{item.upper}</TableCell>
                     <TableCell>{statusLabel(item)}</TableCell>

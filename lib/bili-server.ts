@@ -3,17 +3,21 @@ import {
   PAGE_SIZE,
   TV_APPKEY,
   collectAllPages,
+  collectWhileHasMore,
   folderTitleFromPayload,
+  hasMoreFromPayload,
   mediaCountFromPayload,
   mediasFromPayload,
   normalizeMedia,
   signedParams,
+  tvResourceParams,
   type FavItem,
   type RawMedia,
 } from "./bili";
 
 const WEB_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const APP_UA = "Mozilla/5.0 BiliDroid/8.94.0 (bbcallen@gmail.com)";
 
 function unixTs(): string {
   return String(Math.floor(Date.now() / 1000));
@@ -147,32 +151,40 @@ export async function fetchWebFolder(
   };
 }
 
-export async function fetchSignedResources(mediaId: string, accessKey: string): Promise<FavItem[]> {
-  const load = async (pn: number) => {
-    const params = signedParams({
-      access_key: accessKey,
-      appkey: TV_APPKEY,
-      media_id: mediaId,
-      pn: String(pn),
-      ps: String(PAGE_SIZE),
-      ts: unixTs(),
-    });
-    const url = `https://api.bilibili.com/x/v3/fav/folder/resources?${params.toString()}`;
-    const response = await fetch(url, {
+export async function fetchSignedResources(
+  mediaId: string,
+  accessKey: string,
+): Promise<{ items: FavItem[]; warning?: string }> {
+  const collected = await collectWhileHasMore(async (pn) => {
+    const query = signedParams(tvResourceParams(mediaId, accessKey, String(pn), unixTs()));
+    const response = await fetch(`https://api.bilibili.com/x/v3/fav/folder/resources?${query}`, {
       headers: {
-        "User-Agent": WEB_UA,
-        Referer: "https://www.bilibili.com",
+        "User-Agent": APP_UA,
+        Referer: "https://www.bilibili.com/",
       },
       cache: "no-store",
     });
-    const payload = assertOk(await readJson(response), "签名接口读取收藏夹失败");
-    const raws = mediasFromPayload(payload);
+    let payload: unknown;
+    try {
+      payload = await readJson(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "签名接口读取收藏夹失败";
+      return { items: [], hasMore: false, error: message };
+    }
+    if (!payload || typeof payload !== "object") {
+      return { items: [], hasMore: false, error: "签名接口读取收藏夹失败" };
+    }
+    const body = payload as Record<string, unknown>;
+    const code = Number(body.code);
+    if (code !== 0) {
+      const message = typeof body.message === "string" && body.message ? body.message : "签名接口读取收藏夹失败";
+      return { items: [], hasMore: false, error: `${message}（${code}）` };
+    }
     return {
-      items: raws,
-      mediaCount: mediaCountFromPayload(payload, raws.length),
+      items: mediasFromPayload(payload),
+      hasMore: hasMoreFromPayload(payload),
     };
-  };
+  });
 
-  const collected = await collectAllPages(load, PAGE_SIZE);
-  return mapMedias(collected.items);
+  return { items: mapMedias(collected.items), warning: collected.warning };
 }
